@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: #e7e5e4;
+  color: #1c1917;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+}
+input, select, button { font: inherit; }
+/* No increment arrows on number fields; lengths and layer counts are typed. */
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+button { cursor: pointer; }
+button:disabled { cursor: default; }
+:focus-visible { outline: 3px solid #0f766e; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse { animation: none; }
+}
