@@ -1,7 +1,7 @@
 # Deploys the app to GitHub Pages on every push to main.
 # One-time setup in the repo: Settings > Pages > Source: "GitHub Actions".
-# Optional, for sync: Settings > Secrets and variables > Actions, add
-# VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.
+# For sync: Settings > Secrets and variables > Actions, add
+# VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, and VITE_AUTH_MODE (anonymous).
 name: Deploy to GitHub Pages
 
 on:
@@ -34,6 +34,7 @@ jobs:
           VITE_BASE: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_AUTH_MODE: ${{ secrets.VITE_AUTH_MODE }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
