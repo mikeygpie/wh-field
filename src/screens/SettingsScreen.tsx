@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { setOperatorName, useOperatorName } from '../lib/operator'
 import { clearLocalData, jobDefaults, updateJob } from '../lib/repo'
 import { ensureSeed } from '../lib/seed'
-import { sendMagicLink, signOut, syncNow, useSyncStatus, verifyEmailCode } from '../lib/sync'
+import { anonymousAuth, signInWithPassword, signOut, syncNow, useSyncStatus } from '../lib/sync'
 import { PRESETS } from '../lib/types'
 import type { Job, PresetKey } from '../lib/types'
 import { UNIT_LABEL, setUnit, useUnit } from '../lib/units'
@@ -140,39 +140,40 @@ function AboutSection() {
 function SyncSection() {
   const s = useSyncStatus()
   const [email, setEmail] = useState('')
-  const [code, setCode] = useState('')
-  const [sent, setSent] = useState(false)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
-  const fail = (e: unknown) => setNote(e instanceof Error ? e.message : String(e))
   return (
     <section>
       <Eyebrow>Sync</Eyebrow>
       <div className="bg-white border border-stone-200 rounded-md p-3 space-y-2 text-sm">
         {!s.configured && <div className="text-stone-600">Not configured. This device keeps its own copy only. Add the Supabase keys to .env.local to enable sync.</div>}
-        {s.configured && !s.signedIn && (
+        {s.configured && !s.signedIn && anonymousAuth && (
+          <div className="text-stone-600">Connecting this device… {s.error && <span className="text-red-700">{s.error}</span>}</div>
+        )}
+        {s.configured && !s.signedIn && !anonymousAuth && (
           <div className="space-y-2">
-            <div className="text-stone-600">Sign in to sync with the rest of the crew.</div>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={inputCls} aria-label="Email" />
-            <BigButton tone={sent ? 'ghost' : 'ink'} className="w-full" disabled={!email.includes('@')} onClick={async () => { try { await sendMagicLink(email); setSent(true); setNote('Check your email. Type the 6-digit code below, or tap the link if you are in a browser.') } catch (e) { fail(e) } }}>
-              {sent ? 'Send the code again' : 'Send sign-in code'}
+            <div className="text-stone-600">Sign in with the email and password you were given.</div>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" autoComplete="username" className={inputCls} aria-label="Email" />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" className={inputCls} aria-label="Password" />
+            <BigButton tone="ink" className="w-full" disabled={busy || !email.includes('@') || password.length < 6} onClick={async () => {
+              setBusy(true)
+              setNote('')
+              try { await signInWithPassword(email, password); setPassword('') } catch (e) { setNote(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+            }}>
+              {busy ? 'Signing in…' : 'Sign in'}
             </BigButton>
-            {sent && (
-              <div className="flex gap-2">
-                <input value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" pattern="[0-9]*" placeholder="6-digit code" className={`${inputCls} flex-1 font-mono text-lg tracking-widest`} aria-label="Sign-in code" />
-                <BigButton tone="ink" disabled={code.length < 6} onClick={async () => { try { await verifyEmailCode(email, code); setNote(''); setCode('') } catch (e) { fail(e) } }}>Verify</BigButton>
-              </div>
-            )}
           </div>
         )}
         {s.configured && s.signedIn && (
           <div className="space-y-2">
-            <div className="flex justify-between"><span className="text-stone-600">Signed in as</span><span className="font-medium">{s.email}</span></div>
+            <div className="flex justify-between"><span className="text-stone-600">{anonymousAuth ? 'Connected as' : 'Signed in as'}</span><span className="font-medium">{s.email}</span></div>
             <div className="flex justify-between"><span className="text-stone-600">Queued writes</span><span className="font-medium">{s.pending}</span></div>
             <div className="flex justify-between"><span className="text-stone-600">Last sync</span><span className="font-medium">{s.lastSync ? new Date(s.lastSync).toLocaleTimeString() : 'never'}</span></div>
             {s.error && <div className="text-red-700">{s.error}</div>}
             <div className="flex gap-2">
               <BigButton tone="ghost" className="flex-1" onClick={() => void syncNow()}>Sync now</BigButton>
-              <BigButton tone="ghost" className="flex-1" onClick={() => void signOut()}>Sign out</BigButton>
+              {!anonymousAuth && <BigButton tone="ghost" className="flex-1" onClick={() => void signOut()}>Sign out</BigButton>}
             </div>
           </div>
         )}

@@ -17,6 +17,8 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const supabase: SupabaseClient | null = url && anonKey ? createClient(url, anonKey) : null
 export const syncConfigured = supabase !== null
+/** VITE_AUTH_MODE=anonymous signs every device in silently (no accounts). Anything else means email + password. */
+export const anonymousAuth = (import.meta.env.VITE_AUTH_MODE as string | undefined) === 'anonymous'
 
 export interface SyncStatus {
   configured: boolean
@@ -145,27 +147,32 @@ export function startSync() {
     setTimeout(() => void refreshPending(), 0)
   })
   if (!supabase) return
-  void supabase.auth.getSession().then(({ data }) => {
-    setStatus({ signedIn: !!data.session, email: data.session?.user.email ?? null })
-    if (data.session) scheduleSync(200)
+  void supabase.auth.getSession().then(async ({ data }) => {
+    let session = data.session
+    if (!session && anonymousAuth) {
+      // No accounts in this mode: each device gets its own anonymous user.
+      // Requires "Allow anonymous sign-ins" in Supabase Auth settings.
+      const { data: anon, error } = await supabase.auth.signInAnonymously()
+      if (error) setStatus({ error: error.message })
+      session = anon.session
+    }
+    setStatus({ signedIn: !!session, email: session?.user.email ?? (session ? 'this device' : null) })
+    if (session) scheduleSync(200)
   })
   supabase.auth.onAuthStateChange((_event, session) => {
-    setStatus({ signedIn: !!session, email: session?.user.email ?? null })
+    setStatus({ signedIn: !!session, email: session?.user.email ?? (session ? 'this device' : null) })
     if (session) scheduleSync(200)
   })
 }
 
-// ---------- auth (email code) ----------
-// The email carries both a link and a 6-digit code. On phones the code is the
-// reliable path: a link opens in the browser, not in the home-screen app.
-export async function sendMagicLink(email: string) {
+// ---------- auth (email + password) ----------
+// Users are created by an admin in Supabase (Authentication > Users > Add user)
+// with a password. No sign-up emails, no links: a link would open in the
+// browser rather than the home-screen app, and editing the email templates
+// needs a custom mail server.
+export async function signInWithPassword(email: string, password: string) {
   if (!supabase) throw new Error('Sync is not configured')
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } })
-  if (error) throw error
-}
-export async function verifyEmailCode(email: string, token: string) {
-  if (!supabase) throw new Error('Sync is not configured')
-  const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: token.trim(), type: 'email' })
+  const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
   if (error) throw error
 }
 export async function signOut() {
