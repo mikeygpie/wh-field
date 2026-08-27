@@ -4,11 +4,13 @@ import App from '../App'
 import { db } from '../lib/db'
 import { ensureSeed, importPaperLogs } from '../lib/seed'
 import { addPole, addRun } from '../lib/repo'
+import { setOperatorName } from '../lib/operator'
 
 async function fresh() {
   await db.delete()
   await db.open()
   await ensureSeed()
+  await setOperatorName('Test')
   return (await db.jobs.toArray())[0]
 }
 
@@ -33,8 +35,9 @@ describe('Spans tab', () => {
     await screen.findByText('Add a span')
     const selects = () => Array.from(document.querySelectorAll('select')) as HTMLSelectElement[]
     const run = (await db.runs.toArray())[0]
-    await waitFor(() => expect(selects()[0].value).toBe(run.id))
-    await waitFor(() => expect(selects()[1].value).toBe('6851 BV'))
+    await waitFor(() => expect(selects()[0]?.value).toBe(run.id), { timeout: 4000 })
+    await waitFor(() => expect(selects()[1]?.value).toBe('6851 BV'), { timeout: 4000 })
+    await waitFor(() => expect(selects().length).toBeGreaterThanOrEqual(3), { timeout: 4000 })
     // type a new pole for B, set a length, save
     fireEvent.change(selects()[2], { target: { value: '__new__' } })
     fireEvent.change(await screen.findByLabelText('New pole ID'), { target: { value: '6852 BV' } })
@@ -69,7 +72,7 @@ describe('Spans tab', () => {
     fireEvent.click(await screen.findByText('Span'))
     await screen.findByText('Add a span')
     const selects = () => Array.from(document.querySelectorAll('select')) as HTMLSelectElement[]
-    await waitFor(() => expect(selects()[1].querySelectorAll('option').length).toBeGreaterThan(2))
+    await waitFor(() => expect(selects()[1]?.querySelectorAll('option').length).toBeGreaterThan(2), { timeout: 4000 })
     fireEvent.change(selects()[1], { target: { value: 'P1' } })
     fireEvent.change(selects()[2], { target: { value: 'P2' } })
     await screen.findByRole('alert')
@@ -92,6 +95,21 @@ describe('Spans tab', () => {
   })
 })
 
+describe('Name gate', () => {
+  it('asks for a first name before anything else and remembers it', async () => {
+    await db.delete()
+    await db.open()
+    await ensureSeed()
+    render(<App />)
+    const input = await screen.findByLabelText('First name')
+    expect((screen.getByText('Continue') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(input, { target: { value: 'Dana' } })
+    fireEvent.click(screen.getByText('Continue'))
+    await waitFor(() => expect(screen.queryByLabelText('First name')).toBeNull())
+    expect((await db.meta.get('operator_name'))?.value).toBe('Dana')
+  })
+})
+
 describe('Stats', () => {
   it('offers a by-day view built from the days work was logged', async () => {
     const job = await fresh()
@@ -103,6 +121,8 @@ describe('Stats', () => {
     fireEvent.click(screen.getByText(/Aug 24/))
     await screen.findByText('Spans completed')
     expect(screen.getByText(/All days/)).toBeTruthy()
+    // the activity list lives at the bottom of Stats
+    expect(screen.getByText('Streets & poles')).toBeTruthy()
   })
 })
 

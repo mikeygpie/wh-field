@@ -20,20 +20,34 @@ export async function put<T extends Stamped>(table: TableName, row: T): Promise<
 
 const stamp = (): Stamped => ({ id: uuid(), created_at: now(), updated_at: now() })
 
-/** Diff two records and store an immutable edit row when something changed. */
-async function recordEdit(job_id: string, entity: Edit['entity'], before: Record<string, unknown>, after: Record<string, unknown>, who: string, reason: string) {
-  const changes: Edit['changes'] = {}
-  Object.keys(after).forEach((k) => {
-    if (JSON.stringify(after[k]) !== JSON.stringify(before[k])) changes[k] = { old: before[k], new: after[k] }
-  })
-  if (Object.keys(changes).length === 0) return
-  const edit: Edit = { ...stamp(), job_id, entity, entity_id: String(after.id), changes, who, reason }
+/** One line in the activity log. */
+export async function logActivity(job_id: string, entity: Edit['entity'], entity_id: string, action: Edit['action'], summary: string, opts: { who?: string; reason?: string; changes?: Edit['changes'] } = {}) {
+  const who = opts.who ?? (await whoAmI())
+  const edit: Edit = { ...stamp(), job_id, entity, entity_id, action, summary, changes: opts.changes ?? {}, who, reason: opts.reason ?? '' }
   await put('edits', edit)
 }
 
+const IGNORED_FIELDS = new Set(['updated_at', 'seq'])
+
+/** Diff two records and log an update when something changed. */
+async function recordEdit(job_id: string, entity: Edit['entity'], before: Record<string, unknown>, after: Record<string, unknown>, who: string, reason: string, summary?: string) {
+  const changes: Edit['changes'] = {}
+  Object.keys(after).forEach((k) => {
+    if (IGNORED_FIELDS.has(k)) return
+    if (JSON.stringify(after[k]) !== JSON.stringify(before[k])) changes[k] = { old: before[k], new: after[k] }
+  })
+  if (Object.keys(changes).length === 0) return
+  const fields = Object.keys(changes).join(', ')
+  await logActivity(job_id, entity, String(after.id), 'update', summary ?? `Changed ${fields}`, { who, reason, changes })
+}
+
+const spanName = (s: { pole_a: string; pole_b: string }) => `${s.pole_a} to ${s.pole_b}`
+
 // ---------- jobs ----------
 export async function updateJob(job: Job, changes: Partial<Job>) {
-  return put('jobs', { ...job, ...changes })
+  const next = { ...job, ...changes }
+  await recordEdit(job.id, 'job', job as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, await whoAmI(), '', `Changed job settings: ${Object.keys(changes).join(', ')}`)
+  return put('jobs', next)
 }
 /** Older local jobs may predate some defaults; read them with fallbacks. */
 export const jobDefaults = (job: Job) => ({
@@ -44,12 +58,15 @@ export const jobDefaults = (job: Job) => ({
 
 // ---------- streets (runs) ----------
 export async function addRun(job_id: string, name: string) {
-  return put<Run>('runs', { ...stamp(), job_id, name: name.trim(), deleted_at: null })
+  const run = await put<Run>('runs', { ...stamp(), job_id, name: name.trim(), deleted_at: null })
+  await logActivity(job_id, 'run', run.id, 'create', `Added street ${run.name}`)
+  return run
 }
 
 /** Rename a street; the denormalized street name on its spans follows. */
 export async function renameRun(run: Run, name: string) {
   const updated = await put('runs', { ...run, name: name.trim() })
+  await logActivity(run.job_id, 'run', run.id, 'update', `Renamed street ${run.name} to ${updated.name}`, { changes: { name: { old: run.name, new: updated.name } } })
   const spans = await db.spans.where('run_id').equals(run.id).toArray()
   for (const s of spans) if (s.street !== updated.name) await put('spans', { ...s, street: updated.name })
   return updated
@@ -62,6 +79,7 @@ export async function deleteRun(run: Run, who?: string) {
   for (const s of spans) if (!s.deleted_at) await updateSpan(s, { run_id: null, street: '', seq: await nextSeq(s.job_id, null) }, who, `Street ${run.name} deleted`)
   const poles = await db.poles.where('run_id').equals(run.id).toArray()
   for (const p of poles) if (!p.deleted_at) await put('poles', { ...p, run_id: null })
+  await logActivity(run.job_id, 'run', run.id, 'delete', `Deleted street ${run.name} (${spans.filter((s) => !s.deleted_at).length} spans and ${poles.filter((p) => !p.deleted_at).length} poles moved to Other)`, { who })
   return put('runs', { ...run, deleted_at: now() })
 }
 
@@ -75,19 +93,29 @@ export async function addPole(job: Job, pole_id: string, run_id: string | null):
   const id = pole_id.trim()
   const all = await db.poles.where('job_id').equals(job.id).toArray()
   const found = all.find((p) => normPole(p.pole_id) === normPole(id))
+  const streetName = async (rid: string | null) => (rid ? (await db.runs.get(rid))?.name ?? 'a street' : 'Other')
   if (found) {
-    if (found.deleted_at) return { pole: await put('poles', { ...found, deleted_at: null, run_id }), existed: false }
+    if (found.deleted_at) {
+      const pole = await put('poles', { ...found, deleted_at: null, run_id })
+      await logActivity(job.id, 'pole', pole.id, 'create', `Added pole ${pole.pole_id} under ${await streetName(run_id)}`)
+      return { pole, existed: false }
+    }
     return { pole: found, existed: true }
   }
-  return { pole: await put<Pole>('poles', { ...stamp(), job_id: job.id, run_id, pole_id: id, notes: '', deleted_at: null }), existed: false }
+  const pole = await put<Pole>('poles', { ...stamp(), job_id: job.id, run_id, pole_id: id, notes: '', deleted_at: null })
+  await logActivity(job.id, 'pole', pole.id, 'create', `Added pole ${pole.pole_id} under ${await streetName(run_id)}`)
+  return { pole, existed: false }
 }
 
 export async function movePole(pole: Pole, run: Run | null) {
   if ((pole.run_id ?? null) === (run?.id ?? null)) return pole
-  return put('poles', { ...pole, run_id: run?.id ?? null })
+  const moved = await put('poles', { ...pole, run_id: run?.id ?? null })
+  await logActivity(pole.job_id, 'pole', pole.id, 'move', `Moved pole ${pole.pole_id} to ${run ? run.name : 'Other'}`)
+  return moved
 }
 
 export async function deletePole(pole: Pole) {
+  await logActivity(pole.job_id, 'pole', pole.id, 'delete', `Deleted pole ${pole.pole_id}`)
   return put('poles', { ...pole, deleted_at: now() })
 }
 
@@ -139,6 +167,7 @@ export async function addSpan(job: Job, input: NewSpanInput): Promise<{ span: Sp
     const { pole } = await addPole(job, id, run_id)
     if (run_id && pole.run_id === null) await put('poles', { ...pole, run_id })
   }
+  await logActivity(job.id, 'span', span.id, 'create', `Added span ${spanName(span)}${span.street ? ` on ${span.street}` : ''}${span.length_ft != null ? `, ${span.length_ft} ft` : ''}`)
   return { span, existed: false }
 }
 
@@ -146,7 +175,8 @@ export async function updateSpan(span: Span, changes: Partial<Span>, who: string
   who ??= await whoAmI()
   const next: Span = { ...span, ...changes }
   if (changes.preset && changes.preset !== span.preset) next.wires = PRESETS[changes.preset].wires
-  await recordEdit(span.job_id, 'span', span as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, who, reason)
+  const what = changes.deleted_at ? `Deleted span ${spanName(span)}` : changes.run_id !== undefined && changes.run_id !== span.run_id ? `Moved span ${spanName(span)} to ${next.street || 'Other'}` : `Edited span ${spanName(span)}: ${Object.keys(changes).filter((k) => !IGNORED_FIELDS.has(k)).join(', ')}`
+  await recordEdit(span.job_id, 'span', span as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, who, reason, what)
   const saved = await put('spans', next)
   if (changes.pole_a || changes.pole_b) {
     const job = await db.jobs.get(span.job_id)
@@ -165,15 +195,18 @@ export async function reverseSpan(span: Span, who?: string) {
   for (const p of passes) {
     if (p.side === 'full') continue
     const flipped: Pass = { ...p, side: p.side === 'A' ? 'B' : 'A' }
-    await recordEdit(span.job_id, 'pass', p as unknown as Record<string, unknown>, flipped as unknown as Record<string, unknown>, who, 'Span reversed')
     await put('passes', flipped)
   }
-  return updateSpan(span, { pole_a: span.pole_b, pole_b: span.pole_a }, who, 'Span reversed (A and B swapped)')
+  await logActivity(span.job_id, 'span', span.id, 'update', `Swapped poles A and B on ${spanName(span)} (${passes.length} passes re-sided)`, { who, changes: { pole_a: { old: span.pole_a, new: span.pole_b }, pole_b: { old: span.pole_b, new: span.pole_a } } })
+  return put('spans', { ...span, pole_a: span.pole_b, pole_b: span.pole_a })
 }
 
 /** Soft-delete a span. Its passes stay in the database and in exports; its poles show as "No span yet" again. */
 export async function deleteSpan(span: Span, who: string | undefined, reason: string) {
-  return updateSpan(span, { deleted_at: now() }, who, reason || 'Span deleted')
+  who ??= await whoAmI()
+  const passes = await db.passes.where('span_id').equals(span.id).count()
+  await logActivity(span.job_id, 'span', span.id, 'delete', `Deleted span ${spanName(span)} (${passes} passes kept)`, { who, reason })
+  return put('spans', { ...span, deleted_at: now() })
 }
 
 /**
@@ -217,14 +250,21 @@ export const moveSpanToRun = (span: Span, run: Run | null, who?: string) => move
 // ---------- passes ----------
 export async function startPass(job: Job, span: Span, wire_idx: number, side: Side, layer: number, robot: number, operator?: string) {
   operator ??= await whoAmI()
-  return put<Pass>('passes', {
+  const pass = await put<Pass>('passes', {
     ...stamp(), job_id: job.id, span_id: span.id, wire_idx, side, material: materialFor(side), layer, robot,
     start: now(), end: null, status: 'running', pct: 0, reason: '', operator, notes: '', source: 'live',
   })
+  await logActivity(job.id, 'pass', pass.id, 'start', `Started ${pass.material} layer ${layer} on ${side === 'full' ? `W${wire_idx} full span` : `W${wire_idx} ${side === 'A' ? span.pole_a : span.pole_b} side`} of ${spanName(span)} with #${robot}`, { who: operator })
+  return pass
 }
 
 export async function endPass(pass: Pass, status: PassStatus, pct: number, reason: string) {
-  return put('passes', { ...pass, end: now(), status, pct: status === 'complete' ? 100 : pct, reason: status === 'complete' ? '' : reason })
+  const ended = await put('passes', { ...pass, end: now(), status, pct: status === 'complete' ? 100 : pct, reason: status === 'complete' ? '' : reason })
+  const span = await db.spans.get(pass.span_id)
+  const where = span ? ` on ${spanName(span)}` : ''
+  const how = status === 'complete' ? 'complete' : `${status} at ${ended.pct}%${ended.reason ? ` (${ended.reason})` : ''}`
+  await logActivity(pass.job_id, 'pass', pass.id, 'end', `Ended #${pass.robot} ${pass.material} layer ${pass.layer}${where}: ${how}`)
+  return ended
 }
 
 export interface PastPassInput {
@@ -243,17 +283,20 @@ export interface PastPassInput {
 }
 export async function savePastPass(job: Job, span: Span, input: PastPassInput) {
   const operator = input.operator || (await whoAmI())
-  return put<Pass>('passes', {
+  const pass = await put<Pass>('passes', {
     ...stamp(), job_id: job.id, span_id: span.id, material: materialFor(input.side), ...input, operator,
     pct: input.status === 'complete' ? 100 : input.pct, reason: input.status === 'complete' ? '' : input.reason,
   })
+  await logActivity(job.id, 'pass', pass.id, 'create', `Logged a past ${pass.material} layer ${pass.layer} pass with #${pass.robot} on ${spanName(span)} (${new Date(pass.start).toLocaleDateString()})`, { who: operator })
+  return pass
 }
 
 export async function editPass(pass: Pass, changes: Partial<Pass>, who: string | undefined, reason: string) {
   who ??= await whoAmI()
   const next: Pass = { ...pass, ...changes }
   if (next.status === 'complete') next.pct = 100
-  await recordEdit(pass.job_id, 'pass', pass as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, who, reason)
+  const span = await db.spans.get(pass.span_id)
+  await recordEdit(pass.job_id, 'pass', pass as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, who, reason, `Edited a #${pass.robot} pass${span ? ` on ${spanName(span)}` : ''}: ${Object.keys(changes).join(', ')}`)
   return put('passes', next)
 }
 
@@ -264,14 +307,29 @@ export const liveRobots = () => db.robots.filter((r) => !r.deleted_at).toArray()
 // row for #177 and sync merges them instead of colliding on the unique number.
 export const robotId = (number: number) => `robot-${number}`
 
-export async function upsertRobot(robot: Partial<Robot> & { number: number; type: Robot['type'] }) {
+export async function upsertRobot(robot: Partial<Robot> & { number: number; type: Robot['type'] }, opts: { log?: boolean } = {}) {
   const existing = (await db.robots.get(robotId(robot.number))) ?? (await db.robots.where('number').equals(robot.number).first())
-  if (existing) return put('robots', { ...existing, ...robot, deleted_at: null })
-  return put<Robot>('robots', { ...stamp(), id: robotId(robot.number), name: '', active: true, notes: '', deleted_at: null, ...robot })
+  const jobId = (await db.jobs.toCollection().first())?.id ?? ''
+  const label = (r: { number: number; name?: string }) => `#${r.number}${r.name ? ` ${r.name}` : ''}`
+  if (existing) {
+    const next = { ...existing, ...robot, deleted_at: null }
+    const saved = await put('robots', next)
+    if (opts.log !== false) {
+      if (existing.deleted_at) await logActivity(jobId, 'robot', saved.id, 'create', `Added robot ${label(saved)} back to the fleet`)
+      else if (robot.active !== undefined && robot.active !== existing.active && Object.keys(robot).length <= 3) await logActivity(jobId, 'robot', saved.id, 'update', `${robot.active ? 'Put' : 'Took'} robot ${label(saved)} ${robot.active ? 'on' : 'off'} the truck`)
+      else await recordEdit(jobId, 'robot', existing as unknown as Record<string, unknown>, next as unknown as Record<string, unknown>, await whoAmI(), '', `Edited robot ${label(saved)}`)
+    }
+    return saved
+  }
+  const created = await put<Robot>('robots', { ...stamp(), id: robotId(robot.number), name: '', active: true, notes: '', deleted_at: null, ...robot })
+  if (opts.log !== false) await logActivity(jobId, 'robot', created.id, 'create', `Added robot ${label(created)} (${created.type})`)
+  return created
 }
 
 /** Remove a robot from the list. Passes logged against its number are untouched. */
 export async function deleteRobot(robot: Robot) {
+  const jobId = (await db.jobs.toCollection().first())?.id ?? ''
+  await logActivity(jobId, 'robot', robot.id, 'delete', `Removed robot #${robot.number}${robot.name ? ` ${robot.name}` : ''} from the fleet`)
   return put('robots', { ...robot, deleted_at: now() })
 }
 

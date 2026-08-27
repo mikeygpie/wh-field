@@ -40,8 +40,8 @@ function YouSection() {
     <section>
       <Eyebrow>This device</Eyebrow>
       <div className="bg-white border border-stone-200 rounded-md p-3 space-y-3">
-        <Field label="Your name (recorded on every pass and edit from this phone)">
-          <input value={draft ?? name} onChange={(e) => setDraft(e.target.value)} onBlur={() => { if (draft !== null) { void setOperatorName(draft); setDraft(null) } }} placeholder="First and last name" className={inputCls} aria-label="Your name" />
+        <Field label="Your first name (recorded on every change made from this phone)">
+          <input value={draft ?? name} onChange={(e) => setDraft(e.target.value)} onBlur={() => { if (draft !== null) { void setOperatorName(draft); setDraft(null) } }} placeholder="e.g. Dana" className={inputCls} aria-label="Your name" />
         </Field>
         <Field label="Length unit">
           <div className="flex bg-stone-200 rounded-md p-1">
@@ -120,16 +120,18 @@ function AboutSection() {
       <Eyebrow>App version</Eyebrow>
       <div className="bg-white border border-stone-200 rounded-md p-3 space-y-2 text-sm">
         <div className="flex justify-between"><span className="text-stone-600">Built</span><span className="font-medium">{built}</span></div>
-        <p className="text-xs text-stone-500">If a change you expect isn't here, the phone may still be running a cached copy. Tap below, or close the app fully and reopen it.</p>
+        <p className="text-xs text-stone-500">If a change you expect isn't here, this device is showing a cached copy. The button below drops the cached app files (your data is kept) and loads the current version.</p>
         <BigButton tone="ghost" className="w-full" onClick={async () => {
-          setNote('Checking…')
+          setNote('Loading the latest version…')
           try {
-            const reg = await navigator.serviceWorker?.getRegistration()
-            await reg?.update()
+            // Drop every cached copy of the app shell so the next load comes from the server.
+            const regs = (await navigator.serviceWorker?.getRegistrations()) ?? []
+            for (const r of regs) await r.unregister()
+            if ('caches' in window) for (const k of await caches.keys()) await caches.delete(k)
           } catch { /* no service worker in dev */ }
           window.location.reload()
         }}>
-          Check for an update
+          Load the latest version
         </BigButton>
         {note && <div className="text-stone-600">{note}</div>}
       </div>

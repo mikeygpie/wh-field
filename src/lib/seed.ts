@@ -18,8 +18,8 @@ export async function ensureSeed() {
   // Confirm on the Settings screen before relying on the material column.
   const silicone = [170, 171, 176, 177, 186]
   const pvdf = [132, 173, 174]
-  for (const n of silicone) await upsertRobot({ number: n, type: 'silicone', notes: 'Type assumed from paper logs. Confirm.' })
-  for (const n of pvdf) await upsertRobot({ number: n, type: 'pvdf', notes: 'Type assumed from paper logs. Confirm.' })
+  for (const n of silicone) await upsertRobot({ number: n, type: 'silicone', notes: 'Type assumed from paper logs. Confirm.' }, { log: false })
+  for (const n of pvdf) await upsertRobot({ number: n, type: 'pvdf', notes: 'Type assumed from paper logs. Confirm.' }, { log: false })
 }
 
 const at = (y: number, m: number, d: number, h: number, min: number) => new Date(y, m - 1, d, h, min).getTime()

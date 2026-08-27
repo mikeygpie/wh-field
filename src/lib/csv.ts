@@ -45,8 +45,8 @@ export function passesCsv(passes: Pass[], spans: Span[]): string {
 
 export async function editsCsv(job: Job): Promise<string> {
   const edits = await db.edits.where('job_id').equals(job.id).toArray()
-  const head = ['edit_id', 'entity', 'entity_id', 'when_local', 'who', 'reason', 'changes']
-  const lines = edits.sort((a, b) => a.created_at - b.created_at).map((e) => row([e.id, e.entity, e.entity_id, local(e.created_at), e.who, e.reason, JSON.stringify(e.changes)]))
+  const head = ['activity_id', 'when_local', 'who', 'action', 'entity', 'entity_id', 'summary', 'reason', 'changes']
+  const lines = edits.sort((a, b) => a.created_at - b.created_at).map((e) => row([e.id, local(e.created_at), e.who, e.action, e.entity, e.entity_id, e.summary, e.reason, JSON.stringify(e.changes)]))
   return [row(head), ...lines].join('\n')
 }
 
@@ -72,5 +72,5 @@ export async function exportJob(job: Job) {
   const stamp = new Date().toISOString().slice(0, 10)
   download(`${stamp}-spans.csv`, spansCsv(spans, runNames))
   download(`${stamp}-passes.csv`, passesCsv(passes, spans))
-  download(`${stamp}-edits.csv`, await editsCsv(job))
+  download(`${stamp}-activity.csv`, await editsCsv(job))
 }

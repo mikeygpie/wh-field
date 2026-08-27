@@ -3,6 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Wifi, WifiOff, RefreshCw } from 'lucide-react'
 import { db } from './lib/db'
 import { syncNow, useSyncStatus } from './lib/sync'
+import { setOperatorName, useOperatorName } from './lib/operator'
+import { BigButton, Field, inputCls } from './ui/atoms'
 import type { Pass, Run } from './lib/types'
 import SpansScreen from './screens/SpansScreen'
 import SpanScreen from './screens/SpanScreen'
@@ -40,6 +42,7 @@ export function useNow() {
 
 export default function App() {
   const job = useLiveQuery(() => db.jobs.orderBy('created_at').first())
+  const name = useOperatorName()
   const [screen, setScreen] = useState<Screen>({ name: 'spans' })
   const [sheet, setSheet] = useState<SheetState | null>(null)
   const close = () => setSheet(null)
@@ -79,6 +82,7 @@ export default function App() {
         </div>
         <NavBar screen={screen.name} onNav={(name) => setScreen({ name } as Screen)} />
 
+        {name.trim() === '' && <NameGate />}
         {sheet?.kind === 'log' && <LogSheet job={job} spanId={sheet.spanId} w={sheet.w} side={sheet.side} onClose={close} />}
         {sheet?.kind === 'end' && <EndSheet passId={sheet.passId} onClose={close} />}
         {sheet?.kind === 'editPass' && <EditPassSheet passId={sheet.passId} onClose={close} />}
@@ -86,6 +90,25 @@ export default function App() {
         {sheet?.kind === 'addPole' && <AddPoleSheet job={job} presetRunId={sheet.presetRunId} onClose={close} />}
         {sheet?.kind === 'street' && <StreetSheet job={job} run={sheet.run} onClose={close} />}
         {sheet?.kind === 'editSpan' && <EditSpanSheet spanId={sheet.spanId} onClose={close} />}
+      </div>
+    </div>
+  )
+}
+
+/** Every change is stamped with a name, so the app asks for one before anything else. */
+function NameGate() {
+  const [draft, setDraft] = useState('')
+  const ok = draft.trim().length >= 2
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center p-6" style={{ background: 'rgba(28,25,23,0.85)' }}>
+      <div className="w-full bg-white rounded-lg p-4 space-y-3">
+        <div className="text-lg font-bold tracking-tight">Who's using this phone?</div>
+        <p className="text-sm text-stone-600">Your first name goes on every pass, span, and change you make, so the crew can see who did what.</p>
+        <Field label="First name">
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus autoComplete="given-name" placeholder="e.g. Dana" className={inputCls} aria-label="First name" onKeyDown={(e) => { if (e.key === 'Enter' && ok) void setOperatorName(draft) }} />
+        </Field>
+        <BigButton tone="ink" className="w-full" disabled={!ok} onClick={() => void setOperatorName(draft)}>Continue</BigButton>
+        <p className="text-xs text-stone-500">You can change it later under Settings.</p>
       </div>
     </div>
   )

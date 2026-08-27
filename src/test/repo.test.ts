@@ -121,7 +121,8 @@ describe('streets, poles, and spans', () => {
     expect(after.pole_a).toBe('B1')
     const pass = (await db.passes.get(p.id))!
     expect(pass.side).toBe('B')
-    expect(await db.edits.count()).toBe(2)
+    const log = (await db.edits.toArray()).map((e) => e.summary)
+    expect(log.some((t) => t.startsWith('Swapped poles A and B'))).toBe(true)
   })
 })
 
@@ -145,7 +146,7 @@ describe('units and operator', () => {
     const p = await startPass(j, s, 1, 'A', 1, 177)
     expect(p.operator).toBe('Dana R.')
     await editPass(p, { robot: 176 }, undefined, 'typo')
-    expect((await db.edits.toArray())[0].who).toBe('Dana R.')
+    expect((await db.edits.toArray()).every((e) => e.who === 'Dana R.')).toBe(true)
   })
 
   it('gives each span its own layer plan and wire type from the job defaults', async () => {
@@ -161,8 +162,48 @@ describe('units and operator', () => {
   })
 })
 
+describe('activity log', () => {
+  beforeEach(reset)
+
+  it('records streets, poles, spans, passes, and robots with readable summaries', async () => {
+    const j = await job()
+    await setOperatorName('Mike')
+    const run = await addRun(j.id, 'Maple Ln')
+    const { span: s } = await addSpan(j, span('P1', 'P2', run.id, 150))
+    const p = await startPass(j, s, 1, 'A', 1, 177)
+    await endPass(p, 'interrupted', 60, 'Battery')
+    await upsertRobot({ number: 178, type: 'pvdf', name: 'Bolt' })
+    await deleteRobot((await liveRobots()).find((r) => r.number === 178)!)
+    await deleteRun((await db.runs.get(run.id))!)
+    const log = (await db.edits.toArray()).sort((a, b) => a.created_at - b.created_at)
+    expect(log.every((e) => e.who === 'Mike')).toBe(true)
+    const summaries = log.map((e) => e.summary)
+    expect(summaries).toEqual(expect.arrayContaining([
+      'Added street Maple Ln',
+      expect.stringMatching(/^Added pole P1 under Maple Ln/),
+      'Added span P1 to P2 on Maple Ln, 150 ft',
+      'Started silicone layer 1 on W1 P1 side of P1 to P2 with #177',
+      'Ended #177 silicone layer 1 on P1 to P2: interrupted at 60% (Battery)',
+      'Added robot #178 Bolt (pvdf)',
+      'Removed robot #178 Bolt from the fleet',
+      expect.stringMatching(/^Deleted street Maple Ln/),
+    ]))
+    // the seed's robot list is not logged
+    expect(summaries.some((t) => t.includes('#177 (silicone)'))).toBe(false)
+  })
+})
+
 describe('robots', () => {
   beforeEach(reset)
+
+  it('uses the robot number as the id so devices create identical rows', async () => {
+    const r = (await liveRobots()).find((x) => x.number === 177)!
+    expect(r.id).toBe('robot-177')
+    const added = await upsertRobot({ number: 178, type: 'pvdf', name: 'New' })
+    expect(added.id).toBe('robot-178')
+    expect((await upsertRobot({ number: 178, type: 'pvdf', name: 'Renamed' })).id).toBe('robot-178')
+    expect(await db.robots.where('number').equals(178).count()).toBe(1)
+  })
 
   it('removes a robot from the list and brings it back on re-add', async () => {
     const r = (await liveRobots()).find((x) => x.number === 177)!
@@ -202,9 +243,10 @@ describe('passes', () => {
     const p = await startPass(j, s, 2, 'B', 1, 170, '')
     const done = await endPass(p, 'complete', 100, '')
     await editPass(done, { robot: 171 }, 'lead', 'typo')
-    const edits = await db.edits.toArray()
+    const edits = (await db.edits.toArray()).filter((e) => e.action === 'update' && e.entity === 'pass')
     expect(edits).toHaveLength(1)
     expect(edits[0].changes).toEqual({ robot: { old: 170, new: 171 } })
+    expect(edits[0].who).toBe('lead')
     expect((await db.passes.get(p.id))!.robot).toBe(171)
   })
 
@@ -214,7 +256,7 @@ describe('passes', () => {
     const { span: s } = await addSpan(j, span('P1', 'P2', null))
     const p = await startPass(j, s, 1, 'A', 1, 177, '')
     await endPass(p, 'complete', 100, '')
-    expect(await db.outbox.count()).toBe(before + 5) // span, two poles, pass start, pass end
+    expect(await db.outbox.count()).toBe(before + 10) // span, two poles, pass start, pass end, plus an activity row for each
     const spans = await db.spans.toArray()
     const passes = await db.passes.toArray()
     expect(spansCsv(spans, {}).split('\n')[0]).toContain('pole_a,pole_b')

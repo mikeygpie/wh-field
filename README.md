@@ -32,9 +32,9 @@ Sync stays off until `.env.local` has the Supabase keys (see below). Everything 
 |---|---|
 | Spans | One collapsible, color-coded section per street plus "Other (not on a recorded street)" for anything unassigned (always shown). Each section has its own progress bar and "X of Y spans done", then its spans (status, progress), then its poles that have no span yet, each with a "Create span" button that opens the span sheet with that pole as Pole A. Span rows show completed / total length and a progress bar. Section header: collapse, "+ pole", "+ span" (preselect the street), rename, delete (contents move to Other). Bottom buttons add a street, a pole, or a span. Poles are picked from the recorded poles or typed new; span length is entered on the span. Recorded poles carry their street, so the span follows them, and two poles on different streets are refused with an error. Drag the grip on a row to reorder spans within a street or move a span or pole to another street. |
 | Span record | Mirrors the paper sheet: Pole A left, Pole B right, wires numbered from the road, the road always below the wires by convention, a pip per layer per half-segment, and the pass list. Tap a half to log silicone, the PVDF bar to log a full-span PVDF pass, a pass row to end or edit it. Menu: edit details (including street), swap A and B. |
-| Stats | Spans completed, wire-ft and wire-miles, pass-ft, span-passes, rolls by type, partial/failed counts and reasons, average pass minutes. Today, week, whole job, or by day: the day list comes from the days passes were logged, and tapping a day shows its full set. CSV export. |
+| Stats | Spans completed, wire-ft and wire-miles, pass-ft, span-passes, rolls by type, partial/failed counts and reasons, average pass minutes. Today, week, whole job, or by day: the day list comes from the days passes were logged, and tapping a day shows its full set. CSV export. Below that, the activity log: everything anyone did, newest first, grouped by day, with the person's name on each row and filters by type and by person. |
 | Fleet | Robot list (number, name, type, passes, on truck) with an add/edit sheet and a per-robot menu (edit, delete with confirmation). |
-| Settings | This device: your name (stamped on every pass and edit from this phone) and length unit (feet, yards, meters; storage stays in feet). Job details: name, customer, circuit type default (pre-selects Wires), layer default (pre-selects Layers), wire type default (thickness, voltage, material), default pass minutes. Sync, build stamp with an update button, clear local data. |
+| Settings | This device: your first name (asked for on first launch; stamped on every change from this phone) and length unit (feet, yards, meters; storage stays in feet). Job details: name, customer, circuit type default (pre-selects Wires), layer default (pre-selects Layers), wire type default (thickness, voltage, material), default pass minutes. Sync, build stamp with an update button, clear local data. |
 
 ## Data model
 
@@ -48,7 +48,7 @@ Types live in `src/lib/types.ts` and match the Supabase schema column for column
 - **Half-segment**: not stored; it is (span, wire, side) where side is A or B. Exports use the ID `W{n}-{PoleID}`. PVDF passes use side `full`.
 - **Pass**: segment, layer, robot, material (looked up from the robot list when saved, then fixed), start, end, status, completion %, reason, notes, source (live / paper / csv). One roll per pass started.
 - **Robot**: number, name, type, on truck. Deleting one hides it from the list; passes logged against its number are untouched.
-- **Edit**: immutable record of a change to a pass or span: who, when, reason, and the changed fields with old and new values.
+- **Edit** (the activity log): immutable record of every change: who, when, action (create, update, delete, move, start, end), a one-line summary, a reason when one was given, and the changed fields with old and new values for updates.
 
 Status rules (`src/lib/domain.ts`): a layer on a segment is done at 100% (partial passes add up); a wire is done when all silicone layers are done on both halves and all PVDF layers are done; a span is done when every wrap-required wire is done.
 
@@ -67,7 +67,7 @@ Known simplifications to revisit: `updated_at` comes from device clocks; the out
 ## Supabase setup
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001_init.sql`.
+2. SQL editor: run `supabase/migrations/0001_init.sql`, then `0002_activity.sql`.
 3. Authentication > Sign In / Providers: Email enabled, "Allow new users to sign up" off. Authentication > Users > Add user > Create new user: email, password, Auto Confirm User on. One per crew member. (No magic links: on phones they open in the browser, not the home-screen app, and editing the email templates needs a custom mail server.)
 4. Copy the project URL and anon key into `.env.local`:
    ```
@@ -103,7 +103,7 @@ src/
   lib/csv.ts           exports
   lib/seed.ts          first-run seed and paper log import
   ui/atoms.tsx         tags, pips, buttons, sheet, robot chips, status picker
-  screens/             Spans, Span, Fleet, Stats, Settings
+  screens/             Spans, Span, Fleet, Stats (+ ActivityList), Settings
   sheets/              Log, End, EditPass, AddSpan, EditSpan, AddPole, Street, Robot
   ui/PolePicker.tsx    pick a recorded pole or type a new one
   ui/SpanFields.tsx    wires, layers, wire type fields

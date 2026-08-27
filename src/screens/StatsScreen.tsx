@@ -8,6 +8,7 @@ import { fmtLen, fmtLong, useUnit } from '../lib/units'
 import { liveSpans } from '../lib/repo'
 import type { Job, Pass, Span } from '../lib/types'
 import { BigButton } from '../ui/atoms'
+import ActivityList from './ActivityList'
 
 type Period = 'today' | 'week' | 'job' | 'day'
 const DAY = 86_400_000
@@ -133,7 +134,8 @@ export default function StatsScreen({ job }: { job: Job }) {
         </>
       )}
 
-      <BigButton tone="ghost" className="w-full" onClick={() => void exportJob(job)}>Export CSV (spans, passes, edits)</BigButton>
+      <BigButton tone="ghost" className="w-full" onClick={() => void exportJob(job)}>Export CSV (spans, passes, activity)</BigButton>
+      <div className="pt-2"><ActivityList job={job} /></div>
     </div>
   )
 }

@@ -107,11 +107,16 @@ export interface Robot extends Stamped {
   deleted_at: number | null
 }
 
-/** Immutable record of a change to a pass or span. */
+export type ActivityEntity = 'pass' | 'span' | 'run' | 'pole' | 'robot' | 'job'
+export type ActivityAction = 'create' | 'update' | 'delete' | 'move' | 'start' | 'end'
+
+/** Immutable activity record: who did what, when. Field-level changes are kept for updates. */
 export interface Edit extends Stamped {
   job_id: string
-  entity: 'pass' | 'span'
+  entity: ActivityEntity
   entity_id: string
+  action: ActivityAction
+  summary: string
   changes: Record<string, { old: unknown; new: unknown }>
   who: string
   reason: string

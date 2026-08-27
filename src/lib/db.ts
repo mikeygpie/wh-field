@@ -53,6 +53,13 @@ export class WHDatabase extends Dexie {
       })
       await tx.table('jobs').toCollection().modify((j) => { if (j.wire_preset === 'threeN') j.wire_preset = 'three' })
     })
+    // v5: edits carry an action and a one-line summary (the activity log).
+    this.version(5).stores({}).upgrade(async (tx) => {
+      await tx.table('edits').toCollection().modify((e) => {
+        e.action ??= 'update'
+        e.summary ??= `Edited ${e.entity}: ${Object.keys(e.changes ?? {}).join(', ')}`
+      })
+    })
   }
 
   table_(name: TableName): Table<{ id: string; updated_at: number }, string> {
