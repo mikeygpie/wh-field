@@ -260,10 +260,14 @@ export async function editPass(pass: Pass, changes: Partial<Pass>, who: string |
 // ---------- robots ----------
 export const liveRobots = () => db.robots.filter((r) => !r.deleted_at).toArray()
 
+// A robot's id is derived from its number, so every device creates the same
+// row for #177 and sync merges them instead of colliding on the unique number.
+export const robotId = (number: number) => `robot-${number}`
+
 export async function upsertRobot(robot: Partial<Robot> & { number: number; type: Robot['type'] }) {
-  const existing = await db.robots.where('number').equals(robot.number).first()
+  const existing = (await db.robots.get(robotId(robot.number))) ?? (await db.robots.where('number').equals(robot.number).first())
   if (existing) return put('robots', { ...existing, ...robot, deleted_at: null })
-  return put<Robot>('robots', { ...stamp(), name: '', active: true, notes: '', deleted_at: null, ...robot })
+  return put<Robot>('robots', { ...stamp(), id: robotId(robot.number), name: '', active: true, notes: '', deleted_at: null, ...robot })
 }
 
 /** Remove a robot from the list. Passes logged against its number are untouched. */
