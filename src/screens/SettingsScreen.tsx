@@ -31,7 +31,7 @@ export default function SettingsScreen({ job }: { job: Job }) {
   )
 }
 
-/** Device-level preferences: who is logging from this phone, and the length unit. */
+/** Device-level preferences: who is logging from this device, and the length unit. */
 function YouSection() {
   const name = useOperatorName()
   const unit = useUnit()
@@ -40,7 +40,7 @@ function YouSection() {
     <section>
       <Eyebrow>This device</Eyebrow>
       <div className="bg-white border border-stone-200 rounded-md p-3 space-y-3">
-        <Field label="Your first name (recorded on every change made from this phone)">
+        <Field label="Your first name (recorded on every change made from this device)">
           <input value={draft ?? name} onChange={(e) => setDraft(e.target.value)} onBlur={() => { if (draft !== null) { void setOperatorName(draft); setDraft(null) } }} placeholder="e.g. Dana" className={inputCls} aria-label="Your name" />
         </Field>
         <Field label="Length unit">

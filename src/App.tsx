@@ -102,8 +102,8 @@ function NameGate() {
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center p-6" style={{ background: 'rgba(28,25,23,0.85)' }}>
       <div className="w-full bg-white rounded-lg p-4 space-y-3">
-        <div className="text-lg font-bold tracking-tight">Who's using this phone?</div>
-        <p className="text-sm text-stone-600">Your first name goes on every pass, span, and change you make, so the crew can see who did what.</p>
+        <div className="text-lg font-bold tracking-tight">Who's using this device?</div>
+        <p className="text-sm text-stone-600">Your first name goes on every pass, span, and change made from this device, so the crew can see who did what.</p>
         <Field label="First name">
           <input value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus autoComplete="given-name" placeholder="e.g. Dana" className={inputCls} aria-label="First name" onKeyDown={(e) => { if (e.key === 'Enter' && ok) void setOperatorName(draft) }} />
         </Field>
