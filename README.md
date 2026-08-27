@@ -8,7 +8,7 @@ This is a starter codebase, not a finished product. The screens, data model, syn
 
 - React + TypeScript + Vite, installable as a PWA (home screen icon, offline app shell).
 - Local-first data in IndexedDB (Dexie). Every write lands locally first and is queued for sync.
-- Optional Supabase sync (Postgres + magic-link sign-in). Without keys the app runs local-only.
+- Optional Supabase sync (Postgres + email/password sign-in, users created by an admin). Without keys the app runs local-only.
 - CSV export of spans, passes, and edit history.
 - First-run seed: the BVES pilot job and the robot list. The two photographed paper logs are transcribed in `src/lib/seed.ts` and used as test fixtures.
 - Tests: data layer (dedupe, streets and poles, moves and reorders, layer math, edits, outbox, CSV) and three end-to-end UI flows.
@@ -68,13 +68,15 @@ Known simplifications to revisit: `updated_at` comes from device clocks; the out
 
 1. Create a project at supabase.com.
 2. SQL editor: run `supabase/migrations/0001_init.sql`.
-3. Authentication > Providers: enable Email. Authentication > Email Templates > Magic Link: make sure the body includes `{{ .Token }}` so the email carries the 6-digit code (on phones the code is what people type into the app; a link opens in the browser, not the home-screen app). Authentication > URL configuration: set the site URL to where the app is hosted (and `http://localhost:5173` for dev).
+3. Authentication > Sign In / Providers: Email enabled, "Allow new users to sign up" off. Authentication > Users > Add user > Create new user: email, password, Auto Confirm User on. One per crew member. (No magic links: on phones they open in the browser, not the home-screen app, and editing the email templates needs a custom mail server.)
 4. Copy the project URL and anon key into `.env.local`:
    ```
    VITE_SUPABASE_URL=https://xxxx.supabase.co
    VITE_SUPABASE_ANON_KEY=eyJ...
    ```
-5. Restart `npm run dev`. On Settings, enter an email, type the code from the email (or tap the link when in a browser), and sync starts.
+5. Restart `npm run dev`. On Settings, sign in with the email and password, and sync starts.
+
+No-accounts mode: set `VITE_AUTH_MODE=anonymous` in the host's environment variables and turn on Authentication > Sign In / Providers > "Allow anonymous sign-ins" in Supabase. Every device is then signed in silently. Anyone with the URL can read and write, so keep the link private; switch back by removing the variable.
 
 Row-level security lets any signed-in user read and write everything, which is right for one crew. Tighten to per-organization policies before a second customer or outside users get access.
 
