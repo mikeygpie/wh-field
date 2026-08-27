@@ -68,13 +68,13 @@ Known simplifications to revisit: `updated_at` comes from device clocks; the out
 
 1. Create a project at supabase.com.
 2. SQL editor: run `supabase/migrations/0001_init.sql`.
-3. Authentication > Providers: enable Email, magic link on. Authentication > URL configuration: set the site URL to where the app is hosted (and `http://localhost:5173` for dev).
+3. Authentication > Providers: enable Email. Authentication > Email Templates > Magic Link: make sure the body includes `{{ .Token }}` so the email carries the 6-digit code (on phones the code is what people type into the app; a link opens in the browser, not the home-screen app). Authentication > URL configuration: set the site URL to where the app is hosted (and `http://localhost:5173` for dev).
 4. Copy the project URL and anon key into `.env.local`:
    ```
    VITE_SUPABASE_URL=https://xxxx.supabase.co
    VITE_SUPABASE_ANON_KEY=eyJ...
    ```
-5. Restart `npm run dev`. On Settings, enter an email, tap the link it sends, and sync starts.
+5. Restart `npm run dev`. On Settings, enter an email, type the code from the email (or tap the link when in a browser), and sync starts.
 
 Row-level security lets any signed-in user read and write everything, which is right for one crew. Tighten to per-organization policies before a second customer or outside users get access.
 

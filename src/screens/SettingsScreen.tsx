@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { setOperatorName, useOperatorName } from '../lib/operator'
 import { clearLocalData, jobDefaults, updateJob } from '../lib/repo'
 import { ensureSeed } from '../lib/seed'
-import { sendMagicLink, signOut, syncNow, useSyncStatus } from '../lib/sync'
+import { sendMagicLink, signOut, syncNow, useSyncStatus, verifyEmailCode } from '../lib/sync'
 import { PRESETS } from '../lib/types'
 import type { Job, PresetKey } from '../lib/types'
 import { UNIT_LABEL, setUnit, useUnit } from '../lib/units'
@@ -140,7 +140,10 @@ function AboutSection() {
 function SyncSection() {
   const s = useSyncStatus()
   const [email, setEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [sent, setSent] = useState(false)
   const [note, setNote] = useState('')
+  const fail = (e: unknown) => setNote(e instanceof Error ? e.message : String(e))
   return (
     <section>
       <Eyebrow>Sync</Eyebrow>
@@ -149,10 +152,16 @@ function SyncSection() {
         {s.configured && !s.signedIn && (
           <div className="space-y-2">
             <div className="text-stone-600">Sign in to sync with the rest of the crew.</div>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={inputCls} />
-            <BigButton tone="ink" className="w-full" disabled={!email.includes('@')} onClick={async () => { try { await sendMagicLink(email); setNote('Check your email for the sign-in link.') } catch (e) { setNote(e instanceof Error ? e.message : String(e)) } }}>
-              Send sign-in link
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className={inputCls} aria-label="Email" />
+            <BigButton tone={sent ? 'ghost' : 'ink'} className="w-full" disabled={!email.includes('@')} onClick={async () => { try { await sendMagicLink(email); setSent(true); setNote('Check your email. Type the 6-digit code below, or tap the link if you are in a browser.') } catch (e) { fail(e) } }}>
+              {sent ? 'Send the code again' : 'Send sign-in code'}
             </BigButton>
+            {sent && (
+              <div className="flex gap-2">
+                <input value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" pattern="[0-9]*" placeholder="6-digit code" className={`${inputCls} flex-1 font-mono text-lg tracking-widest`} aria-label="Sign-in code" />
+                <BigButton tone="ink" disabled={code.length < 6} onClick={async () => { try { await verifyEmailCode(email, code); setNote(''); setCode('') } catch (e) { fail(e) } }}>Verify</BigButton>
+              </div>
+            )}
           </div>
         )}
         {s.configured && s.signedIn && (

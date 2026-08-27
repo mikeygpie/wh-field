@@ -155,10 +155,17 @@ export function startSync() {
   })
 }
 
-// ---------- auth (magic link) ----------
+// ---------- auth (email code) ----------
+// The email carries both a link and a 6-digit code. On phones the code is the
+// reliable path: a link opens in the browser, not in the home-screen app.
 export async function sendMagicLink(email: string) {
   if (!supabase) throw new Error('Sync is not configured')
   const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } })
+  if (error) throw error
+}
+export async function verifyEmailCode(email: string, token: string) {
+  if (!supabase) throw new Error('Sync is not configured')
+  const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: token.trim(), type: 'email' })
   if (error) throw error
 }
 export async function signOut() {
