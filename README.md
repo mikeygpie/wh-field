@@ -58,7 +58,7 @@ Ordering: `seq` is the span's position within its street section and is set by d
 
 `src/lib/repo.ts` is the only place that writes. `put()` stamps `updated_at`, stores the row in Dexie, and adds it to the outbox in one transaction. The UI reads through `useLiveQuery`, so it updates the moment the local store changes, online or not.
 
-`src/lib/sync.ts` pushes the outbox in order (upsert by id, stop at the first error so order holds), then pulls each table incrementally by `updated_at`. Merge rule is last-write-wins on `updated_at`. Passes and edits are append-only in practice, so conflicts only touch span details. Sync runs on: app start, coming back online, every 30 seconds, and shortly after any local write.
+`src/lib/sync.ts` pushes the outbox in order (upsert by id, stop at the first error so order holds), then pulls each table incrementally by `updated_at`. Merge rule is last-write-wins on `updated_at`, enforced on the device and on the server (migration 0003 ignores updates older than the stored row). Starter rows from the seed carry `updated_at = 1` so real data always wins over them. Robots and poles have ids derived from their number or tag, so two devices creating the same one merge instead of duplicating. On startup the device pulls before the first paint (up to 6 s) and seeds only if the server has nothing. Settings has "Reload from server" to rebuild a device's copy. Sync runs on: app start, coming back online, every 30 seconds, and shortly after any local write.
 
 The top bar shows the state: Local only, Synced, N queued, Offline, Syncing, Sync error. Tapping it syncs now.
 
@@ -67,7 +67,7 @@ Known simplifications to revisit: `updated_at` comes from device clocks; the out
 ## Supabase setup
 
 1. Create a project at supabase.com.
-2. SQL editor: run `supabase/migrations/0001_init.sql`, then `0002_activity.sql`.
+2. SQL editor: run `supabase/migrations/0001_init.sql`, then `0002_activity.sql`, then `0003_lww.sql`.
 3. Authentication > Sign In / Providers: Email enabled, "Allow new users to sign up" off. Authentication > Users > Add user > Create new user: email, password, Auto Confirm User on. One per crew member. (No magic links: on phones they open in the browser, not the home-screen app, and editing the email templates needs a custom mail server.)
 4. Copy the project URL and anon key into `.env.local`:
    ```

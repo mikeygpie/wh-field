@@ -9,8 +9,9 @@ import type {
 // Every write goes through put(): it stamps updated_at, stores the row
 // locally, and queues it for sync in the same transaction. Nothing waits on
 // the network.
-export async function put<T extends Stamped>(table: TableName, row: T): Promise<T> {
-  const stamped = { ...row, updated_at: now() }
+export async function put<T extends Stamped>(table: TableName, row: T, opts: { seed?: boolean } = {}): Promise<T> {
+  // Seed rows are stamped with 1 so real data from any device wins over them.
+  const stamped = { ...row, updated_at: opts.seed ? 1 : now() }
   await db.transaction('rw', db.table(table), db.outbox, async () => {
     await db.table(table).put(stamped)
     await db.outbox.put({ id: uuid(), table, payload: stamped, created_at: now(), attempts: 0, last_error: null })
@@ -89,10 +90,13 @@ export const livePoles = (job_id: string) => db.poles.where('job_id').equals(job
 export const liveSpans = (job_id: string) => db.spans.where('job_id').equals(job_id).filter((s) => !s.deleted_at).toArray()
 
 /** Record a pole. Same ID (ignoring spaces and case) returns the existing record. */
+/** A pole's id is derived from its ID tag, so every device creates the same row and sync merges them. */
+export const poleRowId = (job_id: string, pole_id: string) => `pole-${job_id}-${normPole(pole_id)}`
+
 export async function addPole(job: Job, pole_id: string, run_id: string | null): Promise<{ pole: Pole; existed: boolean }> {
   const id = pole_id.trim()
   const all = await db.poles.where('job_id').equals(job.id).toArray()
-  const found = all.find((p) => normPole(p.pole_id) === normPole(id))
+  const found = all.find((p) => p.id === poleRowId(job.id, id)) ?? all.find((p) => normPole(p.pole_id) === normPole(id))
   const streetName = async (rid: string | null) => (rid ? (await db.runs.get(rid))?.name ?? 'a street' : 'Other')
   if (found) {
     if (found.deleted_at) {
@@ -102,7 +106,7 @@ export async function addPole(job: Job, pole_id: string, run_id: string | null):
     }
     return { pole: found, existed: true }
   }
-  const pole = await put<Pole>('poles', { ...stamp(), job_id: job.id, run_id, pole_id: id, notes: '', deleted_at: null })
+  const pole = await put<Pole>('poles', { ...stamp(), id: poleRowId(job.id, id), job_id: job.id, run_id, pole_id: id, notes: '', deleted_at: null })
   await logActivity(job.id, 'pole', pole.id, 'create', `Added pole ${pole.pole_id} under ${await streetName(run_id)}`)
   return { pole, existed: false }
 }
@@ -307,7 +311,7 @@ export const liveRobots = () => db.robots.filter((r) => !r.deleted_at).toArray()
 // row for #177 and sync merges them instead of colliding on the unique number.
 export const robotId = (number: number) => `robot-${number}`
 
-export async function upsertRobot(robot: Partial<Robot> & { number: number; type: Robot['type'] }, opts: { log?: boolean } = {}) {
+export async function upsertRobot(robot: Partial<Robot> & { number: number; type: Robot['type'] }, opts: { log?: boolean; seed?: boolean } = {}) {
   const existing = (await db.robots.get(robotId(robot.number))) ?? (await db.robots.where('number').equals(robot.number).first())
   const jobId = (await db.jobs.toCollection().first())?.id ?? ''
   const label = (r: { number: number; name?: string }) => `#${r.number}${r.name ? ` ${r.name}` : ''}`
@@ -321,7 +325,7 @@ export async function upsertRobot(robot: Partial<Robot> & { number: number; type
     }
     return saved
   }
-  const created = await put<Robot>('robots', { ...stamp(), id: robotId(robot.number), name: '', active: true, notes: '', deleted_at: null, ...robot })
+  const created = await put<Robot>('robots', { ...stamp(), id: robotId(robot.number), name: '', active: true, notes: '', deleted_at: null, ...robot }, { seed: opts.seed })
   if (opts.log !== false) await logActivity(jobId, 'robot', created.id, 'create', `Added robot ${label(created)} (${created.type})`)
   return created
 }

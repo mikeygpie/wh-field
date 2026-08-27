@@ -20,10 +20,17 @@ const job = async () => (await db.jobs.toArray())[0]
 describe('seed and paper log import', () => {
   beforeEach(reset)
 
-  it('creates one job and the robot list on first run', async () => {
+  it('creates one job and the robot list on first run, stamped so real data wins', async () => {
     expect(await db.jobs.count()).toBe(1)
     expect(await db.robots.count()).toBe(8)
     expect(await db.spans.count()).toBe(0)
+    expect((await db.jobs.toArray())[0].updated_at).toBe(1)
+    expect((await db.robots.toArray()).every((r) => r.updated_at === 1)).toBe(true)
+    // a robot deleted on another device (newer updated_at) replaces the seed copy under last-write-wins
+    const server = { ...(await db.robots.get('robot-186'))!, deleted_at: 123, updated_at: 1000 }
+    const local = (await db.robots.get('robot-186'))!
+    if (server.updated_at > local.updated_at) await db.robots.put(server)
+    expect((await liveRobots()).some((r) => r.number === 186)).toBe(false)
   })
 
   it('imports the two paper logs once and registers their poles', async () => {
@@ -58,6 +65,7 @@ describe('streets, poles, and spans', () => {
     const again = await addPole(j, '6851bv', run.id)
     expect(again.existed).toBe(true)
     expect(again.pole.id).toBe(p1.pole.id)
+    expect(p1.pole.id).toBe(`pole-${j.id}-6851BV`)
     await addPole(j, '6852 BV', run.id)
     let lone = lonePoles(await db.poles.toArray(), await db.spans.toArray())
     expect(lone.map((p) => p.pole_id).sort()).toEqual(['6851 BV', '6852 BV'])

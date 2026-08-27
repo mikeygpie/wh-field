@@ -100,6 +100,7 @@ export async function pullChanges() {
         for (const row of data as Array<{ id: string; updated_at: number }>) {
           const local = await db.table_(table).get(row.id)
           if (!local || row.updated_at > local.updated_at) await db.table_(table).put(row)
+          await dropLocalTwins(table, row)
         }
       })
       since = (data[data.length - 1] as { updated_at: number }).updated_at
@@ -109,9 +110,36 @@ export async function pullChanges() {
   }
 }
 
+/**
+ * Older builds created robots and poles with random ids on each device. When
+ * the shared row arrives from the server, remove any local copy of the same
+ * robot number or pole ID that has a different id, so one entry shows.
+ */
+async function dropLocalTwins(table: string, row: { id: string } & Record<string, unknown>) {
+  if (table === 'robots') {
+    const twins = await db.robots.where('number').equals(row.number as number).filter((r) => r.id !== row.id).toArray()
+    for (const t of twins) await db.robots.delete(t.id)
+  } else if (table === 'poles') {
+    const key = String(row.pole_id ?? '').toUpperCase().replace(/\s+/g, '')
+    const twins = await db.poles.where('job_id').equals(String(row.job_id)).filter((p) => p.id !== row.id && p.pole_id.toUpperCase().replace(/\s+/g, '') === key).toArray()
+    for (const t of twins) await db.poles.delete(t.id)
+  }
+}
+
+/** Resolves after the first sync attempt finishes (or immediately when sync can't run). */
+let resolveFirst: (() => void) | null = null
+export const firstSyncDone: Promise<void> = new Promise((r) => { resolveFirst = r })
+function markFirst() {
+  resolveFirst?.()
+  resolveFirst = null
+}
+
 let inFlight: Promise<void> | null = null
 export function syncNow(): Promise<void> {
-  if (!supabase || !status.online || !status.signedIn) return refreshPending()
+  if (!supabase || !status.online || !status.signedIn) {
+    if (!supabase || !status.online) markFirst()
+    return refreshPending()
+  }
   if (inFlight) return inFlight
   inFlight = (async () => {
     setStatus({ syncing: true, error: null })
@@ -125,9 +153,26 @@ export function syncNow(): Promise<void> {
       await refreshPending()
       setStatus({ syncing: false })
       inFlight = null
+      markFirst()
     }
   })()
   return inFlight
+}
+
+/**
+ * Rebuild this device's copy from the server: push anything queued, wipe the
+ * synced tables and pull markers, pull everything again. Device settings
+ * (name, unit) are kept.
+ */
+export async function reloadFromServer() {
+  if (!supabase || !status.signedIn) throw new Error('Not connected')
+  await syncNow()
+  if ((await db.outbox.count()) > 0) throw new Error('Some changes are still waiting to upload; try again when online')
+  await db.transaction('rw', [db.jobs, db.runs, db.poles, db.spans, db.passes, db.robots, db.edits, db.meta], async () => {
+    for (const t of SYNC_TABLES) await db.table(t).clear()
+    for (const t of SYNC_TABLES) await db.meta.delete(`pulled:${t}`)
+  })
+  await syncNow()
 }
 
 let debounce: number | undefined
@@ -164,7 +209,8 @@ export function startSync() {
       session = anon.session
     }
     setStatus({ signedIn: !!session, email: session?.user.email || (session ? 'this device' : null) })
-    if (session) scheduleSync(200)
+    if (session) void syncNow()
+    else markFirst()
   })
   supabase.auth.onAuthStateChange((_event, session) => {
     setStatus({ signedIn: !!session, email: session?.user.email || (session ? 'this device' : null) })

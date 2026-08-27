@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { setOperatorName, useOperatorName } from '../lib/operator'
 import { clearLocalData, jobDefaults, updateJob } from '../lib/repo'
 import { ensureSeed } from '../lib/seed'
-import { anonymousAuth, signInWithPassword, signOut, syncNow, useSyncStatus } from '../lib/sync'
+import { anonymousAuth, reloadFromServer, signInWithPassword, signOut, syncNow, useSyncStatus } from '../lib/sync'
 import { PRESETS } from '../lib/types'
 import type { Job, PresetKey } from '../lib/types'
 import { UNIT_LABEL, setUnit, useUnit } from '../lib/units'
@@ -177,6 +177,10 @@ function SyncSection() {
               <BigButton tone="ghost" className="flex-1" onClick={() => void syncNow()}>Sync now</BigButton>
               {!anonymousAuth && <BigButton tone="ghost" className="flex-1" onClick={() => void signOut()}>Sign out</BigButton>}
             </div>
+            <BigButton tone="ghost" className="w-full" onClick={async () => { setNote('Reloading from the server…'); try { await reloadFromServer(); setNote('This device now matches the server.') } catch (e) { setNote(e instanceof Error ? e.message : String(e)) } }}>
+              Reload from server
+            </BigButton>
+            <p className="text-xs text-stone-500">Rebuilds this device's copy from the shared data. Use it if something here looks different from another device. Your name and unit are kept.</p>
           </div>
         )}
         {note && <div className="text-stone-600">{note}</div>}

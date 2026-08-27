@@ -8,18 +8,20 @@ import type { Job, Side, Span } from './types'
 export async function ensureSeed() {
   if ((await db.jobs.count()) > 0) return
   const t = Date.now()
+  // Seed rows carry updated_at = 1 (see put below) so any real row from the
+  // server, on any device, wins over them.
   await put<Job>('jobs', {
     id: 'job-bves-pilot', created_at: t, updated_at: t,
     name: 'BVES pilot', customer: 'Bear Valley Electric Service', circuit: 'Sugarloaf',
     layer_plan: DEFAULT_LAYER_PLAN, wire_preset: 'two', wire_type_default: DEFAULT_WIRE_TYPE, default_pass_minutes: DEFAULT_PASS_MINUTES,
     notes: '2 wire-mile paid pilot. Two-wire 4 kV circuits.',
-  })
+  }, { seed: true })
   // Robot types are assumed from the pattern on the paper logs (passes 1-4 vs pass 5).
   // Confirm on the Settings screen before relying on the material column.
   const silicone = [170, 171, 176, 177, 186]
   const pvdf = [132, 173, 174]
-  for (const n of silicone) await upsertRobot({ number: n, type: 'silicone', notes: 'Type assumed from paper logs. Confirm.' }, { log: false })
-  for (const n of pvdf) await upsertRobot({ number: n, type: 'pvdf', notes: 'Type assumed from paper logs. Confirm.' }, { log: false })
+  for (const n of silicone) await upsertRobot({ number: n, type: 'silicone', notes: 'Type assumed from paper logs. Confirm.' }, { log: false, seed: true })
+  for (const n of pvdf) await upsertRobot({ number: n, type: 'pvdf', notes: 'Type assumed from paper logs. Confirm.' }, { log: false, seed: true })
 }
 
 const at = (y: number, m: number, d: number, h: number, min: number) => new Date(y, m - 1, d, h, min).getTime()
