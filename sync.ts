@@ -68,6 +68,13 @@ export async function pushOutbox() {
   for (const item of items) {
     const { error } = await supabase.from(item.table).upsert(item.payload)
     if (error) {
+      // 23505 = unique violation: the server already has a row with this key
+      // (a robot number from another device). Drop the item rather than block
+      // everything queued behind it; the pull brings down the server's copy.
+      if (error.code === '23505') {
+        await db.outbox.delete(item.id)
+        continue
+      }
       await db.outbox.update(item.id, { attempts: item.attempts + 1, last_error: error.message })
       throw new Error(`${item.table}: ${error.message}`)
     }
@@ -156,11 +163,11 @@ export function startSync() {
       if (error) setStatus({ error: error.message })
       session = anon.session
     }
-    setStatus({ signedIn: !!session, email: session?.user.email ?? (session ? 'this device' : null) })
+    setStatus({ signedIn: !!session, email: session?.user.email || (session ? 'this device' : null) })
     if (session) scheduleSync(200)
   })
   supabase.auth.onAuthStateChange((_event, session) => {
-    setStatus({ signedIn: !!session, email: session?.user.email ?? (session ? 'this device' : null) })
+    setStatus({ signedIn: !!session, email: session?.user.email || (session ? 'this device' : null) })
     if (session) scheduleSync(200)
   })
 }
